@@ -47,7 +47,18 @@ fn run_ffprobe_command(input_file: &str) -> Result<FfprobeOutput, String> {
     }
 }
 
-fn convert_to_mkv(input_file: &str, output_file: &str, pix_fmt: &str, field_order: &str, interlaced_overwrite: bool) -> Result<ExitStatus, String> {
+fn convert_to_mkv(
+    input_file: &str,
+    output_file: &str,
+    pix_fmt: &str,
+    field_order: &str,
+    interlaced_overwrite: bool,
+    encoder: &str,
+    preset: &str,
+    crf: u8,
+    audio_file_types: &[String],
+    audio_codec: &str
+) -> Result<ExitStatus, String> {
     let ffprobe_output = run_ffprobe_command(input_file)?;
 
     let interlaced = field_order != "progressive" || interlaced_overwrite;
@@ -66,9 +77,9 @@ fn convert_to_mkv(input_file: &str, output_file: &str, pix_fmt: &str, field_orde
 
     let mut command = Command::new("ffmpeg");
     command.arg("-i").arg(input_file);
-    command.arg("-c:v").arg("hevc_nvenc");
-    command.arg("-preset").arg("slow");
-    command.arg("-crf").arg("13");
+    command.arg("-c:v").arg(encoder);
+    command.arg("-preset").arg(preset);
+    command.arg("-crf").arg(crf.to_string());
     command.arg("-pix_fmt").arg(pix_fmt);
     command.arg("-map").arg("0:v:0");
 
@@ -79,10 +90,10 @@ fn convert_to_mkv(input_file: &str, output_file: &str, pix_fmt: &str, field_orde
     for track in audio_tracks {
         let codec = track.codec_name.as_deref().unwrap_or("");
         command.arg("-map").arg(format!("0:{}", track.index.unwrap_or_default()));
-        if ["flac", "aac", "ac3", "eac3"].contains(&codec) {
+        if audio_file_types.contains(&codec.to_string()) {
             command.arg("-c:a").arg("copy");
         } else {
-            command.arg("-c:a").arg("aac");
+            command.arg("-c:a").arg(audio_codec);
         }
         if let Some(bit_rate) = &track.bit_rate {
             command.arg("-b:a").arg(bit_rate);
@@ -102,13 +113,23 @@ fn convert_to_mkv(input_file: &str, output_file: &str, pix_fmt: &str, field_orde
     command.status().map_err(|e| format!("Failed to execute ffmpeg: {}", e))
 }
 
-fn traverse_and_convert(source_dir: &str, output_dir: &str, interlaced_overwrite: bool, file_types: Vec<String>) -> Result<(), String> {
+fn traverse_and_convert(
+    source_dir: &str,
+    output_dir: &str,
+    interlaced_overwrite: bool,
+    video_file_types: Vec<String>,
+    encoder: &str,
+    preset: &str,
+    crf: u8,
+    audio_file_types: Vec<String>,
+    audio_codec: &str,
+    skip_codecs: Vec<String>,)-> Result<(), String> {
     let mut original_total_size = 0u64;
     let mut converted_total_size = 0u64;
 
     for entry in WalkDir::new(source_dir)
         .into_iter()
-        .filter(|e| correct_file_type(e.as_ref().unwrap().path(), &file_types)) {
+        .filter(|e| correct_file_type(e.as_ref().unwrap().path(), &video_file_types)) {
         let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
         let path = entry.path();
 
@@ -129,7 +150,7 @@ fn traverse_and_convert(source_dir: &str, output_dir: &str, interlaced_overwrite
             let video_stream = video_info.streams.iter().find(|stream| stream.codec_type == Some("video".to_string()));
 
             if let Some(video_stream) = video_stream {
-                if video_stream.codec_name != Some("hevc".to_string()) && video_stream.codec_name != Some("h264".to_string()) {
+                if !skip_codecs.contains(&video_stream.codec_name.as_deref().unwrap_or("").to_string()) {
                     let pix_fmt = video_stream.pix_fmt.as_deref().unwrap_or("yuv420p");
                     let field_order = video_stream.field_order.as_deref().unwrap_or("progressive");
 
@@ -143,12 +164,22 @@ fn traverse_and_convert(source_dir: &str, output_dir: &str, interlaced_overwrite
                     let original_size = fs::metadata(input_file).map_err(|e| format!("Failed to get file metadata: {}", e))?.len();
                     original_total_size += original_size;
 
-                    convert_to_mkv(input_file, output_file.to_str().ok_or_else(|| "Failed to convert output path to string".to_string())?, pix_fmt, field_order, interlaced_overwrite)?;
-
+                    convert_to_mkv(
+                        input_file,
+                        output_file.to_str().ok_or_else(|| "Failed to convert output path to string".to_string())?,
+                        pix_fmt,
+                        field_order,
+                        interlaced_overwrite,
+                        encoder,
+                        preset,
+                        crf,
+                        &audio_file_types,
+                        audio_codec
+                    )?;
                     let converted_size = fs::metadata(&output_file).map_err(|e| format!("Failed to get file metadata: {}", e))?.len();
                     converted_total_size += converted_size;
 
-                    info!("Original size: {:.2} MB\nConverted size: {:.2} MB\nSpace saved: {:.2} MB\nPercentage saved: {:.2}%"
+                    info!("\nOriginal size: {:.2} MB\nConverted size: {:.2} MB\nSpace saved: {:.2} MB\nPercentage saved: {:.2}%"
                         , original_size as f64 / (1024.0 * 1024.0)
                         , converted_size as f64 / (1024.0 * 1024.0)
                         , (original_size as f64 - converted_size as f64) / (1024.0 * 1024.0)
@@ -160,7 +191,7 @@ fn traverse_and_convert(source_dir: &str, output_dir: &str, interlaced_overwrite
         }
     }
     
-    info!("Total original size: {:.2} MB\nTotal converted size: {:.2} MB\nTotal space saved: {:.2} MB\nTotal percentage saved: {:.2}%"
+    info!("\nTotal original size: {:.2} MB\nTotal converted size: {:.2} MB\nTotal space saved: {:.2} MB\nTotal percentage saved: {:.2}%"
                         , original_total_size as f64 / (1024.0 * 1024.0)
                         , converted_total_size as f64 / (1024.0 * 1024.0)
                         , (original_total_size as f64 - converted_total_size as f64) / (1024.0 * 1024.0)
@@ -194,7 +225,17 @@ fn main() {
 
     let args = arguments::get_arguments();
 
-    match traverse_and_convert(&args.source, &args.output, args.interlace_overwrite, args.file_types) {
+    match traverse_and_convert(
+        &args.source,
+        &args.output,
+        args.interlace_overwrite,
+        args.video_file_types,
+        &args.encoder,
+        &args.preset,
+        args.crf,
+        args.convert_audio_codec,
+        &args.audio_codec,
+        args.skip_video_codecs,) {
         Ok(_) => {info!("All done!")}
         Err(e) => {error!("Error: {}", e);}
     };
