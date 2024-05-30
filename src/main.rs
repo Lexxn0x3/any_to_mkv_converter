@@ -7,6 +7,8 @@ use std::fs::FileType;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use walkdir::{DirEntry, WalkDir};
+use log::{info, error, warn};
+use flexi_logger::{Logger, Duplicate, FileSpec, WriteMode};
 
 #[derive(Debug, Deserialize)]
 struct Stream {
@@ -119,7 +121,7 @@ fn traverse_and_convert(source_dir: &str, output_dir: &str, interlaced_overwrite
                 .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
             if output_file.exists() {
-                println!("Skipping {} as the output file already exists", input_file);
+                warn!("Skipping {} as the output file already exists", input_file);
                 continue;
             }
 
@@ -131,9 +133,12 @@ fn traverse_and_convert(source_dir: &str, output_dir: &str, interlaced_overwrite
                     let pix_fmt = video_stream.pix_fmt.as_deref().unwrap_or("yuv420p");
                     let field_order = video_stream.field_order.as_deref().unwrap_or("progressive");
 
-                    println!("video_codec_name: {:?}", video_stream.codec_name);
-                    println!("pix_fmt: {}", pix_fmt);
-                    println!("field_order: {}", field_order);
+                    info!("{:?}\nvideo_codec_name: {:?}\npix_fmt: {:?}\nfield_order: {:?}",
+                        input_file,
+                        video_stream.codec_name.as_deref().unwrap_or("unknown"),
+                        pix_fmt,
+                        field_order
+                    );
 
                     let original_size = fs::metadata(input_file).map_err(|e| format!("Failed to get file metadata: {}", e))?.len();
                     original_total_size += original_size;
@@ -143,21 +148,23 @@ fn traverse_and_convert(source_dir: &str, output_dir: &str, interlaced_overwrite
                     let converted_size = fs::metadata(&output_file).map_err(|e| format!("Failed to get file metadata: {}", e))?.len();
                     converted_total_size += converted_size;
 
-                    println!("Original size: {:.2} MB", original_size as f64 / (1024.0 * 1024.0));
-                    println!("Converted size: {:.2} MB", converted_size as f64 / (1024.0 * 1024.0));
-                    println!("Space saved: {:.2} MB", (original_size as f64 - converted_size as f64) / (1024.0 * 1024.0));
+                    info!("Original size: {:.2} MB\nConverted size: {:.2} MB\nSpace saved: {:.2} MB\nPercentage saved: {:.2}%"
+                        , original_size as f64 / (1024.0 * 1024.0)
+                        , converted_size as f64 / (1024.0 * 1024.0)
+                        , (original_size as f64 - converted_size as f64) / (1024.0 * 1024.0)
+                        , ((original_size as f64 - converted_size as f64) as f64 / original_size as f64) * 100.0);
                 } else {
-                    println!("Skipping {} as it is already in {} format", input_file, video_stream.codec_name.as_deref().unwrap_or(""));
+                    warn!("Skipping {} as it is already in {} format", input_file, video_stream.codec_name.as_deref().unwrap_or(""));
                 }
             }
         }
     }
-
-    let total_space_saved = original_total_size - converted_total_size;
-    println!("Total original size: {:.2} MB", original_total_size as f64 / (1024.0 * 1024.0));
-    println!("Total converted size: {:.2} MB", converted_total_size as f64 / (1024.0 * 1024.0));
-    println!("Total space saved: {:.2} MB", total_space_saved as f64 / (1024.0 * 1024.0));
-    println!("Percentage saved: {:.2}%", total_space_saved as f64 / original_total_size as f64 * 100.0);
+    
+    info!("Total original size: {:.2} MB\nTotal converted size: {:.2} MB\nTotal space saved: {:.2} MB\nTotal percentage saved: {:.2}%"
+                        , original_total_size as f64 / (1024.0 * 1024.0)
+                        , converted_total_size as f64 / (1024.0 * 1024.0)
+                        , (original_total_size as f64 - converted_total_size as f64) / (1024.0 * 1024.0)
+                        , ((original_total_size as f64 - converted_total_size as f64) as f64 / original_total_size as f64) * 100.0);
 
     Ok(())
 }
@@ -170,10 +177,25 @@ fn correct_file_type(path: &Path, file_types: &Vec<String>) -> bool {
 }
 
 fn main() {
+    // Initialize logging
+    Logger::try_with_str("info")
+        .unwrap()
+        .log_to_file(
+            FileSpec::default()
+                .directory("log")
+                .basename("application")
+                .suffix("log"),
+        )
+        .duplicate_to_stdout(Duplicate::All)
+        .write_mode(WriteMode::BufferAndFlush)
+        .format_for_files(flexi_logger::detailed_format)
+        .start()
+        .unwrap();
+
     let args = arguments::get_arguments();
 
     match traverse_and_convert(&args.source, &args.output, args.interlace_overwrite, args.file_types) {
-        Ok(_) => {println!("All done!")}
-        Err(e) => {eprintln!("Error: {}", e);}
+        Ok(_) => {info!("All done!")}
+        Err(e) => {error!("Error: {}", e);}
     };
 }
