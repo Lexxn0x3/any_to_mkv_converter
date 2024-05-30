@@ -233,7 +233,7 @@ fn main() {
         &args.encoder,
         &args.preset,
         args.crf,
-        args.convert_audio_codec,
+        args.ok_audio_codec,
         &args.audio_codec,
         args.skip_video_codecs,) {
         Ok(_) => {info!("All done!")}

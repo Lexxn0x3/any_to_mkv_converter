@@ -17,7 +17,7 @@ pub struct Args {
     pub interlace_overwrite: bool,
 
     /// Video file types that are considered for conversion
-    #[arg(short, long, default_values = &["mp4", "avi", "mov", "mkv"])]
+    #[arg(short, long, default_values = &["mp4", "avi", "mov", "mkv"], num_args = (0..10))]
     pub video_file_types: Vec<String>,
 
     /// Encoder to use for video conversion
@@ -32,16 +32,16 @@ pub struct Args {
     #[arg(short, long, default_value_t = 18)]
     pub crf: u8,
 
-    /// Audio codecs that are considered for conversion
-    #[arg(short, long, default_values = &["flac", "aac", "ac3", "eac3"])]
-    pub convert_audio_codec: Vec<String>,
+    /// Audio codecs that are not considered for conversion
+    #[arg(long, default_values = &["flac", "mp3", "aac", "ac3"], num_args = (0..10))]
+    pub ok_audio_codec: Vec<String>,
 
     /// Audio codec to convert to
     #[arg(short, long, default_value = "aac")]
     pub audio_codec: String,
 
     /// Video codecs to skip
-    #[arg(short, long, default_values = &["hevc", "h264"])]
+    #[arg(long, default_values = &["hevc", "h264"], num_args = (0..10))]
     pub skip_video_codecs: Vec<String>,
 }
 
