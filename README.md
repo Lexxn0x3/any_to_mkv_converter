@@ -34,7 +34,7 @@ Here's how to use the Media Converter Tool. You can customize various options to
 Convert all your media files in the `/media/source` directory to be compatible with older devices and save the converted files to `/media/output`:
 
 ```sh
-cargo run -- --source /media/source --output /media/output --interlace-overwrite --video-file-types mp4 avi mov mkv --encoder hevc_nvenc --preset slow --crf 18 --ok-audio-codec flac aac ac3 eac3 --audio-codec aac --skip-video-codecs hevc h264
+cargo run -- --source /media/source --output /media/output --interlace-overwrite --video-file-types mp4 avi mov mkv --encoder hevc_nvenc --preset slow --crf 18 --ok-audio-codec flac aac ac3 eac3 --audio-codec aac --skip-video-codecs hevc h264 av1
 ```
 
 ## Handy Use Case
